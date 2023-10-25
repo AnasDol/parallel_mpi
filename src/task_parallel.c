@@ -2,6 +2,7 @@
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
+#include <mpi.h>
 
 #define T 100 // постоянная температура в правом верхнем углу
 #define T3 50 // начальная температура внутри области
@@ -17,81 +18,123 @@ int compute_temperature(double** temperature, int m, int n, double R, FILE* logf
 
 int main(int argc, char* argv[]) {
 
-    if (argc < 2) {
-        printf("Enter log filename as command prompt argument\n");
-        return 0;
-    }
+    MPI_Init(&argc,&argv);
 
-    char filename[255];
-    strncpy(filename, argv[1], 255);
+    int rank, size;
 
-    FILE* logfile = fopen(filename, "w+");
-    if (!logfile) {
-        printf("File not found\n");
-        return 0;
-    }
+    // Получаем количество доступных процессов
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    printf("Row number (>=2): ");
-    int m; // размер области по вертикали
-    if (!(scanf("%d", &m)==1 && m>=2)) {
-        printf("Input error\n");
-        return 0;
-    }
+    // Получаем идентификатор текущего процесса
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-    printf("Column number (>=2): ");
-    int n; // размер области по горизонтали
-    if (!(scanf("%d", &n)==1 && n>=2)) {
-        printf("Input error\n");
-        return 0;
-    }
+    int n, m;
+    double R;
 
-    printf("Cut radius (1<R<%.2lf): ", (double)min(m,n)/2);
-    double R; // радиус круглого выреза
-    if (!(scanf("%lf", &R)==1 && R>=1 && R<=(double)min(m,n)/2)) {
-        printf("Input error\n");
-        return 0;
+    if (rank == 0) {
+        if (argc < 2) {
+            printf("Enter log filename as command prompt argument\n");
+            return 0;
+        }
+
+        char filename[255];
+        strncpy(filename, argv[1], 255);
+
+        FILE* logfile = fopen(filename, "w+");
+        if (!logfile) {
+            printf("File not found\n");
+            return 0;
+        }
+
+        printf("Row number (>=2): ");
+        if (!(scanf("%d", &m)==1 && m>=2)) {
+            printf("Input error\n");
+            return 0;
+        }
+
+        printf("Column number (>=2): ");
+        if (!(scanf("%d", &n)==1 && n>=2)) {
+            printf("Input error\n");
+            return 0;
+        }
+
+        printf("Cut radius (1<R<%.2lf): ", (double)min(m,n)/2);
+        if (!(scanf("%lf", &R)==1 && R>=1 && R<=(double)min(m,n)/2)) {
+            printf("Input error\n");
+            return 0;
+        }
+
     }
 
     double** temperature = (double**)malloc(m * sizeof(double*));
-    for (int i = 0; i < m; i++) {
+    int i;
+    for (i = 0; i < m; i++) {
         temperature[i] = (double*)malloc(n * sizeof(double));
     }
 
-    initialize(temperature, m, n);
+    double* flattenedTemperature = (double*)malloc(n * m * sizeof(double));
 
-    int count = compute_temperature(temperature, m, n, R, logfile);
-    printf("Count: %d\n", count);
+    if (rank == 0) {
 
-    for (int i = 0; i < n; i++) {
-        printf("%.2lf\t", temperature[0][i]);
+        initialize(temperature, m, n);
+
+        int i;
+        for (i = 0; i < m; i++) {
+            int j;
+            for (j = 0; j < n; j++) {
+                flattenedTemperature[i * n + j] = temperature[i][j];
+            }
+        }
+
+        MPI_Bcast(&m, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&R, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        MPI_Bcast(flattenedTemperature, m * n, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        MPI_Barrier(MPI_COMM_WORLD);
+
     }
 
-    printf("\nIntermediate results is saved in the log file.\n", count);
+    for (i = 0; i < m; i++) {
+        int j;
+        for (j = 0; j < n; j++) {
+            temperature[i][j] = flattenedTemperature[i * n + j];
+        }
+    }
+    
+    int count = compute_temperature(temperature, m, n, R, logfile);
 
-    // Вывод распределения температур
-    // for (int i = 0; i < m; i++) {
-    //     for (int j = 0; j < n; j++) {
-    //         if (pow(i-round((double)(m/2-1)), 2) + pow(j-round((double)(n/2)), 2) <= R*R) printf("   \t");
-    //         else printf("%.2f\t", temperature[i][j]);
-    //     }
-    //     printf("\n");
-    // }
+    if (rank == 0) {
+        printf("Count: %d\n", count);
 
+        for (i = 0; i < n; i++) {
+            printf("%.2lf\t", temperature[0][i]);
+        }
 
-    for (int i = 0;i<m;i++) {
+        printf("\nIntermediate results is saved in the log file.\n");
+
+        fclose(logfile);
+    }
+    
+
+    for (i = 0;i<m;i++) {
         free(temperature[i]);
     }
     free(temperature);
 
-    fclose(logfile);
-    
+    free(flattenedTemperature);
+
+    // Завершаем работу с MPI
+    MPI_Finalize();
+
     return 0;
 }
 
 void initialize(double** temperature, int rows, int cols) {
     // Инициализация значений температур в начальный момент времени
-    for (int i = 0; i < rows; i++) {
-        for (int j = 0; j < cols; j++) {
+    int i;
+    for (i = 0; i < rows; i++) {
+        int j;
+        for (j = 0; j < cols; j++) {
             if (j == cols - 1) {
                 temperature[i][j] = T - (double)T/(rows-1)*i;  // равномерно убывающая температура на правой границе
             } 
@@ -112,9 +155,11 @@ double get_new_temp(double** temperature, int rows, int cols, int current_row, i
     double newTemp = 0.0;
     int count = 0;
 
-    for (int i = current_row-1; i<=current_row+1;i++) {
+    int i;
+    for (i = current_row-1; i<=current_row+1;i++) {
         if (i < 0 || i > rows-1) continue;
-        for(int j = current_col-1;j<=current_col+1;j++) {
+        int j;
+        for(j = current_col-1;j<=current_col+1;j++) {
             if (j < 0 || j > cols-1) continue;
             if (pow(i-round((double)(rows/2-1)), 2) + pow(j-round((double)(cols/2)), 2) > R*R) {
                 newTemp += temperature[i][j];
@@ -142,17 +187,18 @@ int compute_temperature(double** temperature, int rows, int cols, double R, FILE
     int end = (rank + 1) * rows / size;
 
     double** new_temp = (double**)malloc(rows * sizeof(double*));
-    for (int i = 0; i < rows; i++) {
+    int i;
+    for (i = 0; i < rows; i++) {
         new_temp[i] = (double*)malloc(cols * sizeof(double));
     }
 
-    if (temps != NULL) {
+    if (logfile != NULL) {
             fprintf(logfile, "[%d] ", iter);
             fflush(logfile);
             // Рассылка логов каждым процессом
-            for(int i=0; i<size; i++) {
+            for(i=0; i<size; i++) {
                 if (i == rank) {
-                    for (int j = 0; j < cols; j++) {
+                    int j; for (j = 0; j < cols; j++) {
                         fprintf(logfile, "%.2lf ", new_temp[0][j]);
                         fflush(logfile);
                     }
@@ -167,8 +213,8 @@ int compute_temperature(double** temperature, int rows, int cols, double R, FILE
         diff = 0.0;
         
         // каждый процесс вычисляет только свою часть
-        for (int i = begin; i < end; i++) {
-            for (int j = 0; j < cols; j++) {
+        for (i = begin; i < end; i++) {
+            int j; for (j = 0; j < cols; j++) {
                 new_temp[i][j] = get_new_temp(temperature, rows, cols, i, j, R);
             }
         }
@@ -179,9 +225,9 @@ int compute_temperature(double** temperature, int rows, int cols, double R, FILE
         if (logfile != NULL) {
           fprintf(logfile, "[%d] ", iter);
           fflush(logfile);
-          for(int i=0; i<size; i++) {
+          for(i=0; i<size; i++) {
             if (i == rank) {
-              for (int j = 0; j < cols; j++) {
+              int j; for (j = 0; j < cols; j++) {
                 fprintf(logfile, "%.2lf ", new_temp[0][j]);
                 fflush(logfile);
               }
