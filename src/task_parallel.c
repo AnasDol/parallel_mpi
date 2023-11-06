@@ -14,24 +14,23 @@
 
 void initialize(double** temperature, int m, int n);
 double get_new_temp(double** temperature, int rows, int cols, int current_row, int current_col, double R);
-int compute_temperature(double** temperature, int m, int n, double R, FILE* logfile);
+double compute_temp_one_step(double** temperature, int m, int n, double R, int ProcRank, int ProcNum);
+int left(int m, int n, int ProcRank, int ProcNum) { return (ProcRank == 0) ? 0 : (n / ProcNum) * ProcRank; }
+int right(int m, int n, int ProcRank, int ProcNum) { return (ProcRank == ProcNum - 1) ? n-1 : (n / ProcNum) * ProcRank; }
 
 int main(int argc, char* argv[]) {
 
-    MPI_Init(&argc,&argv);
+    int ProcNum, ProcRank, RecvRank;
 
-    int rank, size;
-
-    // Получаем количество доступных процессов
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
-
-    // Получаем идентификатор текущего процесса
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Status Status;
+    MPI_Init(&argc, &argv);
+    MPI_Comm_size(MPI_COMM_WORLD, &ProcNum);
+    MPI_Comm_rank(MPI_COMM_WORLD, &ProcRank);
 
     int n, m;
     double R;
 
-    if (rank == 0) {
+    if (ProcRank == 0) {
         if (argc < 2) {
             printf("Enter log filename as command prompt argument\n");
             return 0;
@@ -66,6 +65,13 @@ int main(int argc, char* argv[]) {
 
     }
 
+    MPI_Barrier(MPI_COMM_WORLD);
+    MPI_Bcast(&m, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&R, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+    printf("%d: m = %d, n = %d, R = %lf\n", ProcRank, m, n, R);
+
     double** temperature = (double**)malloc(m * sizeof(double*));
     int i;
     for (i = 0; i < m; i++) {
@@ -74,7 +80,7 @@ int main(int argc, char* argv[]) {
 
     double* flattenedTemperature = (double*)malloc(n * m * sizeof(double));
 
-    if (rank == 0) {
+    if (ProcRank == 0) {
 
         initialize(temperature, m, n);
 
@@ -86,13 +92,14 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        MPI_Bcast(&m, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Bcast(&R, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-        MPI_Bcast(flattenedTemperature, m * n, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-        MPI_Barrier(MPI_COMM_WORLD);
-
+        for (i = 0;i<n*m;i++) {
+            printf("%lf ", flattenedTemperature[i]);
+        }
+        
     }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    MPI_Bcast(flattenedTemperature, m*n, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
     for (i = 0; i < m; i++) {
         int j;
@@ -100,28 +107,107 @@ int main(int argc, char* argv[]) {
             temperature[i][j] = flattenedTemperature[i * n + j];
         }
     }
-    
-    int count = compute_temperature(temperature, m, n, R, logfile);
 
-    if (rank == 0) {
-        printf("Count: %d\n", count);
-
-        for (i = 0; i < n; i++) {
-            printf("%.2lf\t", temperature[0][i]);
+    printf("From process %d:\n", ProcRank);
+    for (int i = 0;i<m;i++) {
+        for (int j = 0;j<n;j++) {
+            printf("%lf ", temperature[i][j]);
         }
-
-        printf("\nIntermediate results is saved in the log file.\n");
-
-        fclose(logfile);
+        printf("\n");
     }
+
+//     double max_diff = 1.0;
+//     int iter = 0;
+//     double diff;
+
+//     cycle: diff = compute_temp_one_step(temperature, m, n, R, ProcRank, ProcNum);
+
+//     if (ProcRank == 0) {
+
+//         printf("In cycle: %d\n", iter);
+//         iter++;
+
+//         max_diff = diff;
+//         printf("   ProcRank: %d, diff: %lf\n", RecvRank, diff);
+
+//         int i;
+//         for (i = 1; i < ProcNum; i++) {
+
+//             printf("1\n");
+//             MPI_Recv(flattenedTemperature, m*n, MPI_DOUBLE, i, 0, MPI_COMM_WORLD, &Status);
+//             printf("2\n");
+//             MPI_Recv(&RecvRank, 1, MPI_INT, i, 0, MPI_COMM_WORLD, &Status);
+//             printf("3\n");
+//             MPI_Recv(&diff, 1, MPI_DOUBLE, i, 0, MPI_COMM_WORLD, &Status);
+//             printf("4\n");
+
+//              printf("   RecvRank: %d\n", RecvRank);
+        
+
+//             if (diff > max_diff) max_diff = diff;
+
+//             for (i = 0; i < m; i++) {
+//                 int j;
+//                 for (j = left(m, n, RecvRank, ProcNum); j <= right(m, n, RecvRank, ProcNum); j++) {
+//                     temperature[i][j] = flattenedTemperature[i * n + j];
+//                 }
+//             }
+
+//             printf("   After receiving\n");
+
+//         }
+
+//         for (i = 0; i < m; i++) {
+//             int j;
+//             for (j = 0; j < n; j++) {
+//                 flattenedTemperature[i * n + j] = temperature[i][j];
+//             }
+//         }
+
+//         printf("   After flattering\n");
+
+//         if (max_diff > EPSILON) {
+//             MPI_Bcast(flattenedTemperature, m * n, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+//             goto cycle;
+//         }
+
+
+//    } else {
+
+//         int i;
+//         for (i = 0; i < m; i++) {
+//             int j;
+//             for (j = 0; j < n; j++) {
+//                 flattenedTemperature[i * n + j] = temperature[i][j];
+//             }
+//         }
+//         printf("Process %d: 1\n", ProcRank);
+//         MPI_Send(flattenedTemperature, m*n, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+//         printf("Process %d: 2\n", ProcRank);
+//         MPI_Send(&ProcRank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+//         printf("Process %d: 3\n", ProcRank);
+//         MPI_Send(&diff, 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+//         printf("Process %d sended all\n", ProcRank);
+//     }
+
+    // if (ProcRank == 0) {
+    //     printf("iter: %d\n", iter);
+    //     for (i = 0; i < m; i++) {
+    //         int j;
+    //         for (j = 0; j < n ;j++) {
+    //             printf("%.2lf ", temperature[i][j]);
+    //         }
+    //         printf("\n");
+    //     }
+    // }
     
+    
+    // for (i = 0;i<m;i++) {
+    //     free(temperature[i]);
+    // }
+    // free(temperature);
 
-    for (i = 0;i<m;i++) {
-        free(temperature[i]);
-    }
-    free(temperature);
-
-    free(flattenedTemperature);
+    // free(flattenedTemperature);
 
     // Завершаем работу с MPI
     MPI_Finalize();
@@ -173,70 +259,38 @@ double get_new_temp(double** temperature, int rows, int cols, int current_row, i
 
 }
 
-int compute_temperature(double** temperature, int rows, int cols, double R, FILE* logfile) {
+double compute_temp_one_step(double** temperature, int m, int n, double R, int ProcRank, int ProcNum) {
 
-    int iter = 0;    // Счетчик итераций
-    double diff = 1.0;  // Разница между текущей и предыдущей итерациями
+    double diff = 0;
 
-    int size, rank;
-    MPI_Comm_size(MPI_COMM_WORLD, &size); // Получение информации о количестве процессов
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank); // Получение ранга текущего процесса
-
-    // Расчет индексов для данного процесса
-    int begin = rank * rows / size;
-    int end = (rank + 1) * rows / size;
-
-    double** new_temp = (double**)malloc(rows * sizeof(double*));
+    double** new_temp = (double**)malloc(m * sizeof(double*));
     int i;
-    for (i = 0; i < rows; i++) {
-        new_temp[i] = (double*)malloc(cols * sizeof(double));
+    for (i = 0; i < m; i++) {
+        new_temp[i] = (double*)malloc(n * sizeof(double));
     }
 
-    if (logfile != NULL) {
-            fprintf(logfile, "[%d] ", iter);
-            fflush(logfile);
-            // Рассылка логов каждым процессом
-            for(i=0; i<size; i++) {
-                if (i == rank) {
-                    int j; for (j = 0; j < cols; j++) {
-                        fprintf(logfile, "%.2lf ", new_temp[0][j]);
-                        fflush(logfile);
-                    }
-                }
-                MPI_Barrier(MPI_COMM_WORLD); 
-            }
+    for (i = 0; i < m; i++) {
+        int j;
+        for (j = 0; j < n; j++) {
+            new_temp[i][j] = temperature[i][j];
         }
-
-    while (diff > EPSILON) {
-
-        iter++;
-        diff = 0.0;
-        
-        // каждый процесс вычисляет только свою часть
-        for (i = begin; i < end; i++) {
-            int j; for (j = 0; j < cols; j++) {
-                new_temp[i][j] = get_new_temp(temperature, rows, cols, i, j, R);
-            }
-        }
-
-        // Синхронизация данных между процессами
-        MPI_Allreduce(MPI_IN_PLACE, &diff, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-
-        if (logfile != NULL) {
-          fprintf(logfile, "[%d] ", iter);
-          fflush(logfile);
-          for(i=0; i<size; i++) {
-            if (i == rank) {
-              int j; for (j = 0; j < cols; j++) {
-                fprintf(logfile, "%.2lf ", new_temp[0][j]);
-                fflush(logfile);
-              }
-            }
-            MPI_Barrier(MPI_COMM_WORLD);
-          }
-        }
-
     }
 
-  return iter;
+    for (i = 0; i < m; i++) {
+        int j;
+        for (j = left(m, n, ProcRank, ProcNum); j <= right(m, n, ProcRank, ProcNum); j++) {   
+            new_temp[i][j] = get_new_temp(temperature, m, n, i, j, R);
+        }
+    }
+
+    for (i = 0; i < m; i++) {
+        int j;
+        for (j = 0;j < n; j++) {
+            diff += fabs(new_temp[i][j] - temperature[i][j]);
+            temperature[i][j] = new_temp[i][j];
+        }
+    }
+
+    return diff;
+
 }
