@@ -95,16 +95,20 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        printf("Initial state:\n");
-        for (int i = 0; i< n * m; i++) {
-            if (i%n == 0) printf("\n");
-            printf("%.2lf ", flattenedTemperature[i]);
+        if (m <= 30 && n <= 15) {
+            printf("Initial state:");
+            for (int i = 0; i< n * m; i++) {
+                if (i%n == 0) printf("\n");
+                printf("%.2lf ", flattenedTemperature[i]);
+            }
         }
+
+        
 
         if (logfile != NULL) {
             fprintf(logfile, "[%d] ", iter);
             for (int i = 0; i < n; i++) {
-                fprintf(logfile, "%.2lf ", temperature[0][i]);
+                fprintf(logfile, "%.3lf ", temperature[0][i]);
             }
             fprintf(logfile, "\n");
         }
@@ -135,7 +139,7 @@ int main(int argc, char* argv[]) {
 
         if (ProcRank == 0) {
 
-            printf("\n\n[%d]:\n", iter);
+            //printf("\n[%d]: ", iter);
             iter++;
 
             max_diff = diff;
@@ -158,7 +162,7 @@ int main(int argc, char* argv[]) {
             if (logfile != NULL) {
                 fprintf(logfile, "[%d] ", iter);
                 for (int i = 0; i < n; i++) {
-                    fprintf(logfile, "%.2lf ", temperature[0][i]);
+                    fprintf(logfile, "%.3lf ", temperature[0][i]);
                 }
                 fprintf(logfile, "\n");
             }
@@ -170,10 +174,9 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            for (int i = 0; i < m*n; i++) {
-                if (i%n==0) printf("\n");
-                printf("%-5.2lf ", flattenedTemperature[i]);
-            }
+            // for (int i = 0; i < m; i++) {
+            //     printf("%-5.3lf ", flattenedTemperature[i]);
+            // }
 
         } else {
 
@@ -195,7 +198,13 @@ int main(int argc, char* argv[]) {
 
     if (ProcRank == 0) {
         finish = MPI_Wtime();
-        printf("\nTime: %lf", finish-start);
+        printf("Output:\n");
+        for (int i = 0; i < n; i++) {
+            printf("%.3lf\t", temperature[0][i]);
+        }
+        printf("\nIntermediate results is saved in the log file.\n");
+        printf("Time: %lf\n", finish - start);
+        printf("Count: %d\n", iter);
     } 
     
     for (int i = 0;i<m;i++) {

@@ -2,17 +2,18 @@
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
+#include <omp.h>
 
 #define T 100 // постоянная температура в правом верхнем углу
 #define T3 50 // начальная температура внутри области
 
-#define EPSILON 0.0001  // Допустимая погрешность
+#define EPSILON 0.001  // Допустимая погрешность
 #define MAX_ITER 1000   // Максимальное количество итераций
 
 #define min(a,b) (((a) < (b)) ? (a) : (b))
 
 void initialize(double** temperature, int m, int n);
-double get_new_temp(double** temperature, int rows, int cols, int current_row, int current_col, double R);
+double get_new_temp(double** temperature, int m, int n, int current_row, int current_col, double R);
 int compute_temperature(double** temperature, int m, int n, double R, FILE* logfile);
 
 int main(int argc, char* argv[]) {
@@ -59,14 +60,29 @@ int main(int argc, char* argv[]) {
 
     initialize(temperature, m, n);
 
-    int count = compute_temperature(temperature, m, n, R, logfile);
-    printf("Count: %d\n", count);
-
-    for (int i = 0; i < n; i++) {
-        printf("%.2lf\t", temperature[0][i]);
+    if (m <= 30 && n <= 15) {
+        printf("Initial state:\n");
+        for (int i = 0; i < m; i++) {
+            for (int j = 0; j < n; j++) {
+                printf("%5.3lf ", temperature[i][j]);
+            }
+            printf("\n");
+        }
     }
 
+    double start = omp_get_wtime();
+
+    int count = compute_temperature(temperature, m, n, R, logfile);
+
+    double finish = omp_get_wtime();
+
+    printf("Output:\n");
+    for (int i = 0; i < n; i++) {
+        printf("%.3lf\t", temperature[0][i]);
+    }
     printf("\nIntermediate results is saved in the log file.\n", count);
+    printf("Time: %lf\n", finish - start);
+    printf("Count: %d\n", count);
 
     // Вывод распределения температур
     // for (int i = 0; i < m; i++) {
@@ -88,14 +104,14 @@ int main(int argc, char* argv[]) {
     return 0;
 }
 
-void initialize(double** temperature, int rows, int cols) {
+void initialize(double** temperature, int m, int n) {
     // Инициализация значений температур в начальный момент времени
-    for (int i = 0; i < rows; i++) {
-        for (int j = 0; j < cols; j++) {
-            if (j == cols - 1) {
-                temperature[i][j] = T - (double)T/(rows-1)*i;  // равномерно убывающая температура на правой границе
+    for (int i = 0; i < m; i++) {
+        for (int j = 0; j < n; j++) {
+            if (j == n - 1) {
+                temperature[i][j] = T - (double)T/(m-1)*i;  // равномерно убывающая температура на правой границе
             } 
-            else if (j == 0 || i == rows-1) {
+            else if (j == 0 || i == m-1) {
                 temperature[i][j] = 0;  // нулевая температура на левой и нижней границах
             } else {
                 temperature[i][j] = T3; // начальная температура внутри области
@@ -104,19 +120,19 @@ void initialize(double** temperature, int rows, int cols) {
     }
 }
 
-double get_new_temp(double** temperature, int rows, int cols, int current_row, int current_col, double R) {
+double get_new_temp(double** temperature, int m, int n, int current_row, int current_col, double R) {
 
-    if (current_col == 0 || current_col == cols-1 || current_row == rows-1) return temperature[current_row][current_col]; // постоянная температура
-    else if (pow(current_row-round((double)(rows/2-1)), 2) + pow(current_col-round((double)(cols/2)), 2) <= R*R) return 0.0;
+    if (current_col == 0 || current_col == n-1 || current_row == m-1) return temperature[current_row][current_col]; // постоянная температура
+    else if (pow(current_row-round((double)(m/2-1)), 2) + pow(current_col-round((double)(n/2)), 2) <= R*R) return 0.0;
 
     double newTemp = 0.0;
     int count = 0;
 
     for (int i = current_row-1; i<=current_row+1;i++) {
-        if (i < 0 || i > rows-1) continue;
+        if (i < 0 || i > m-1) continue;
         for(int j = current_col-1;j<=current_col+1;j++) {
-            if (j < 0 || j > cols-1) continue;
-            if (pow(i-round((double)(rows/2-1)), 2) + pow(j-round((double)(cols/2)), 2) > R*R) {
+            if (j < 0 || j > n-1) continue;
+            if (pow(i-round((double)(m/2-1)), 2) + pow(j-round((double)(n/2)), 2) > R*R) {
                 newTemp += temperature[i][j];
                 count++;
             }
@@ -128,69 +144,61 @@ double get_new_temp(double** temperature, int rows, int cols, int current_row, i
 
 }
 
-int compute_temperature(double** temperature, int rows, int cols, double R, FILE* logfile) {
+int compute_temperature(double** temperature, int m, int n, double R, FILE* logfile) {
 
-    int iter = 0;    // Счетчик итераций
+    // Метод последовательных приближений
     double diff = 1.0;  // Разница между текущей и предыдущей итерациями
+    int iter = 0;       // Счетчик итераций
 
-    int size, rank;
-    MPI_Comm_size(MPI_COMM_WORLD, &size); // Получение информации о количестве процессов
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank); // Получение ранга текущего процесса
-
-    // Расчет индексов для данного процесса
-    int begin = rank * rows / size;
-    int end = (rank + 1) * rows / size;
-
-    double** new_temp = (double**)malloc(rows * sizeof(double*));
-    for (int i = 0; i < rows; i++) {
-        new_temp[i] = (double*)malloc(cols * sizeof(double));
+    double** new_temp = (double**)malloc(m * sizeof(double*));
+    for (int i = 0; i < m; i++) {
+        new_temp[i] = (double*)malloc(n * sizeof(double));
     }
 
-    if (temps != NULL) {
+    if (logfile != NULL) {
             fprintf(logfile, "[%d] ", iter);
-            fflush(logfile);
-            // Рассылка логов каждым процессом
-            for(int i=0; i<size; i++) {
-                if (i == rank) {
-                    for (int j = 0; j < cols; j++) {
-                        fprintf(logfile, "%.2lf ", new_temp[0][j]);
-                        fflush(logfile);
-                    }
-                }
-                MPI_Barrier(MPI_COMM_WORLD); 
+            for (int i = 0; i < n; i++) {
+                fprintf(logfile, "%.3lf ", temperature[0][i]);
             }
+            fprintf(logfile, "\n");
         }
 
     while (diff > EPSILON) {
 
         iter++;
+
         diff = 0.0;
-        
-        // каждый процесс вычисляет только свою часть
-        for (int i = begin; i < end; i++) {
-            for (int j = 0; j < cols; j++) {
-                new_temp[i][j] = get_new_temp(temperature, rows, cols, i, j, R);
+
+        for (int i = 0; i < m; i++) {
+            for (int j = 0; j < n; j++) {
+                
+                new_temp[i][j] = get_new_temp(temperature, m, n, i, j, R);
             }
         }
 
-        // Синхронизация данных между процессами
-        MPI_Allreduce(MPI_IN_PLACE, &diff, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+        for (int i = 0; i < m; i++) {
+            for (int j = 0;j < n; j++) {
+                diff += fabs(new_temp[i][j] - temperature[i][j]);
+                temperature[i][j] = new_temp[i][j];
+                
+            }
+        }
 
         if (logfile != NULL) {
-          fprintf(logfile, "[%d] ", iter);
-          fflush(logfile);
-          for(int i=0; i<size; i++) {
-            if (i == rank) {
-              for (int j = 0; j < cols; j++) {
-                fprintf(logfile, "%.2lf ", new_temp[0][j]);
-                fflush(logfile);
-              }
+            fprintf(logfile, "[%d] ", iter);
+            for (int i = 0; i < n; i++) {
+                fprintf(logfile, "%.3lf ", temperature[0][i]);
             }
-            MPI_Barrier(MPI_COMM_WORLD);
-          }
+            fprintf(logfile, "\n");
         }
 
     }
 
-  return iter;
+    for (int i = 0;i<m;i++) {
+        free(new_temp[i]);
+    }
+    free(new_temp);
+
+    return iter;
+    
 }
