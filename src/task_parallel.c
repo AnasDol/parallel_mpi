@@ -32,6 +32,8 @@ int main(int argc, char* argv[]) {
 
     FILE* logfile;
 
+    double start, finish;
+
     if (ProcRank == 0) {
         if (argc < 2) {
             printf("Enter log filename as command prompt argument\n");
@@ -106,6 +108,8 @@ int main(int argc, char* argv[]) {
             }
             fprintf(logfile, "\n");
         }
+
+        start = MPI_Wtime();
         
     }
 
@@ -187,7 +191,12 @@ int main(int argc, char* argv[]) {
 
         MPI_Bcast(&max_diff, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
-    }    
+    }  
+
+    if (ProcRank == 0) {
+        finish = MPI_Wtime();
+        printf("\nTime: %lf", finish-start);
+    } 
     
     for (int i = 0;i<m;i++) {
         free(temperature[i]);
