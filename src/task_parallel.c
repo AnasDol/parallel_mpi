@@ -15,8 +15,8 @@
 void initialize(double** temperature, int m, int n);
 double get_new_temp(double** temperature, int rows, int cols, int current_row, int current_col, double R);
 double compute_temp_one_step(double** temperature, int m, int n, double R, int ProcRank, int ProcNum);
-int left(int m, int n, int ProcRank, int ProcNum) { return (ProcRank == 0) ? 0 : (n / ProcNum) * ProcRank; }
-int right(int m, int n, int ProcRank, int ProcNum) { return (ProcRank == ProcNum - 1) ? n-1 : (n / ProcNum) * ProcRank; }
+int left(int m, int n, int ProcRank, int ProcNum) { return (ProcRank == 0) ? 1 : (n / ProcNum) * ProcRank; }
+int right(int m, int n, int ProcRank, int ProcNum) { return (ProcRank == ProcNum-1) ? n-1 : (n / ProcNum) * (ProcRank + 1) - 1; }
 
 int main(int argc, char* argv[]) {
 
@@ -93,7 +93,8 @@ int main(int argc, char* argv[]) {
         }
 
         for (i = 0;i<n*m;i++) {
-            printf("%lf ", flattenedTemperature[i]);
+            if (i%n == 0) printf("\n");
+            printf("%.2lf ", flattenedTemperature[i]);
         }
         
     }
@@ -108,19 +109,27 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    printf("From process %d:\n", ProcRank);
+    // printf("From process %d:\n", ProcRank);
+    // for (int i = 0;i<m;i++) {
+    //     for (int j = 0;j<n;j++) {
+    //         printf("%lf ", temperature[i][j]);
+    //     }
+    //     printf("\n");
+    // }
+
+    double max_diff = 1.0;
+    int iter = 0;
+    double diff;
+
+    cycle: diff = compute_temp_one_step(temperature, m, n, R, ProcRank, ProcNum);
+
+    printf("From process %d:\ndiff = %lf\n", ProcRank, diff);
     for (int i = 0;i<m;i++) {
         for (int j = 0;j<n;j++) {
-            printf("%lf ", temperature[i][j]);
+            printf("%0.2lf ", temperature[i][j]);
         }
         printf("\n");
     }
-
-//     double max_diff = 1.0;
-//     int iter = 0;
-//     double diff;
-
-//     cycle: diff = compute_temp_one_step(temperature, m, n, R, ProcRank, ProcNum);
 
 //     if (ProcRank == 0) {
 
@@ -133,13 +142,9 @@ int main(int argc, char* argv[]) {
 //         int i;
 //         for (i = 1; i < ProcNum; i++) {
 
-//             printf("1\n");
 //             MPI_Recv(flattenedTemperature, m*n, MPI_DOUBLE, i, 0, MPI_COMM_WORLD, &Status);
-//             printf("2\n");
 //             MPI_Recv(&RecvRank, 1, MPI_INT, i, 0, MPI_COMM_WORLD, &Status);
-//             printf("3\n");
 //             MPI_Recv(&diff, 1, MPI_DOUBLE, i, 0, MPI_COMM_WORLD, &Status);
-//             printf("4\n");
 
 //              printf("   RecvRank: %d\n", RecvRank);
         
@@ -181,33 +186,29 @@ int main(int argc, char* argv[]) {
 //                 flattenedTemperature[i * n + j] = temperature[i][j];
 //             }
 //         }
-//         printf("Process %d: 1\n", ProcRank);
 //         MPI_Send(flattenedTemperature, m*n, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
-//         printf("Process %d: 2\n", ProcRank);
 //         MPI_Send(&ProcRank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
-//         printf("Process %d: 3\n", ProcRank);
 //         MPI_Send(&diff, 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
-//         printf("Process %d sended all\n", ProcRank);
 //     }
 
-    // if (ProcRank == 0) {
-    //     printf("iter: %d\n", iter);
-    //     for (i = 0; i < m; i++) {
-    //         int j;
-    //         for (j = 0; j < n ;j++) {
-    //             printf("%.2lf ", temperature[i][j]);
-    //         }
-    //         printf("\n");
-    //     }
-    // }
+//     if (ProcRank == 0) {
+//         printf("iter: %d\n", iter);
+//         for (i = 0; i < m; i++) {
+//             int j;
+//             for (j = 0; j < n ;j++) {
+//                 printf("%.2lf ", temperature[i][j]);
+//             }
+//             printf("\n");
+//         }
+//     }
     
     
-    // for (i = 0;i<m;i++) {
-    //     free(temperature[i]);
-    // }
-    // free(temperature);
+    for (i = 0;i<m;i++) {
+        free(temperature[i]);
+    }
+    free(temperature);
 
-    // free(flattenedTemperature);
+    free(flattenedTemperature);
 
     // Завершаем работу с MPI
     MPI_Finalize();
@@ -217,10 +218,8 @@ int main(int argc, char* argv[]) {
 
 void initialize(double** temperature, int rows, int cols) {
     // Инициализация значений температур в начальный момент времени
-    int i;
-    for (i = 0; i < rows; i++) {
-        int j;
-        for (j = 0; j < cols; j++) {
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
             if (j == cols - 1) {
                 temperature[i][j] = T - (double)T/(rows-1)*i;  // равномерно убывающая температура на правой границе
             } 
@@ -236,26 +235,27 @@ void initialize(double** temperature, int rows, int cols) {
 double get_new_temp(double** temperature, int rows, int cols, int current_row, int current_col, double R) {
 
     if (current_col == 0 || current_col == cols-1 || current_row == rows-1) return temperature[current_row][current_col]; // постоянная температура
-    else if (pow(current_row-round((double)(rows/2-1)), 2) + pow(current_col-round((double)(cols/2)), 2) <= R*R) return 0.0;
+    
+    // else if (pow(current_row-round((double)(rows/2-1)), 2) + pow(current_col-round((double)(cols/2)), 2) <= R*R) return 0.0;
 
     double newTemp = 0.0;
     int count = 0;
 
-    int i;
-    for (i = current_row-1; i<=current_row+1;i++) {
+    for (int i = current_row-1; i<=current_row+1;i++) {
         if (i < 0 || i > rows-1) continue;
-        int j;
-        for(j = current_col-1;j<=current_col+1;j++) {
+        for(int j = current_col-1;j<=current_col+1;j++) {
             if (j < 0 || j > cols-1) continue;
-            if (pow(i-round((double)(rows/2-1)), 2) + pow(j-round((double)(cols/2)), 2) > R*R) {
-                newTemp += temperature[i][j];
-                count++;
-            }
+            // if (pow(i-round((double)(rows/2-1)), 2) + pow(j-round((double)(cols/2)), 2) > R*R) {
+            //     newTemp += temperature[i][j];
+            //     count++;
+            // }
+            newTemp += temperature[i][j];
+            count++;
         }
     }
 
     if (count != 0) return newTemp/count;
-    else return temperature[current_row][current_col];
+    else return -10;//temperature[current_row][current_col];
 
 }
 
@@ -276,16 +276,18 @@ double compute_temp_one_step(double** temperature, int m, int n, double R, int P
         }
     }
 
-    for (i = 0; i < m; i++) {
-        int j;
-        for (j = left(m, n, ProcRank, ProcNum); j <= right(m, n, ProcRank, ProcNum); j++) {   
+    int l = left(m, n, ProcRank, ProcNum);
+    int r = right(m, n, ProcRank, ProcNum);
+    printf("Process %d: left = %d, right = %d\n", ProcRank, l, r);
+
+    for (int i = 0; i < m; i++) {
+        for (int j = left(m, n, ProcRank, ProcNum); j <= right(m, n, ProcRank, ProcNum); j++) {   
             new_temp[i][j] = get_new_temp(temperature, m, n, i, j, R);
         }
     }
 
-    for (i = 0; i < m; i++) {
-        int j;
-        for (j = 0;j < n; j++) {
+    for (int i = 0; i < m; i++) {
+        for (int j = 0;j < n; j++) {
             diff += fabs(new_temp[i][j] - temperature[i][j]);
             temperature[i][j] = new_temp[i][j];
         }
@@ -294,3 +296,4 @@ double compute_temp_one_step(double** temperature, int m, int n, double R, int P
     return diff;
 
 }
+
