@@ -7,7 +7,7 @@
 #define T 100 // постоянная температура в правом верхнем углу
 #define T3 50 // начальная температура внутри области
 
-#define EPSILON 0.0001  // Допустимая погрешность
+#define EPSILON 0.001  // Допустимая погрешность
 #define MAX_ITER 1000   // Максимальное количество итераций
 
 #define min(a,b) (((a) < (b)) ? (a) : (b))
@@ -106,89 +106,73 @@ int main(int argc, char* argv[]) {
     int iter = 0;
     double diff;
 
-    cycle: for (i = 0; i < m; i++) {
-        int j;
-        for (j = 0; j < n; j++) {
-            temperature[i][j] = flattenedTemperature[i * n + j];
-        }
-    }
-    
-    diff = compute_temp_one_step(temperature, m, n, R, ProcRank, ProcNum);
+    while (max_diff > EPSILON) {
 
-    printf("From process %d:\ndiff = %lf\n", ProcRank, diff);
-    for (int i = 0;i<m;i++) {
-        for (int j = 0;j<n;j++) {
-            printf("%0.2lf ", temperature[i][j]);
-        }
-        printf("\n");
-    }
-
-    MPI_Barrier(MPI_COMM_WORLD);
-
-    if (ProcRank == 0) {
-
-        printf("In cycle: %d\n", iter);
-        iter++;
-
-        max_diff = diff;
-
-        for (int i = 1; i < ProcNum; i++) {
-
-            MPI_Recv(flattenedTemperature, m*n, MPI_DOUBLE, i, 0, MPI_COMM_WORLD, &Status);
-            MPI_Recv(&diff, 1, MPI_DOUBLE, i, 0, MPI_COMM_WORLD, &Status);
-        
-            if (diff > max_diff) max_diff = diff;
-
-            for (int j = 0; j < m; j++) {
-                for (int k = left(m, n, i, ProcNum); k <= right(m, n, i, ProcNum); k++) {
-                    temperature[j][k] = flattenedTemperature[j * n + k];
-                }
-            }
-
-            // for (int j = 0;j<m;j++) {
-            //     for (int k = 0;k<n;k++) {
-            //         printf("%.2lf ", temperature[j][k]);
-            //     }
-            //     printf("\n");
-            // }
-
-        }
-
-        for (int i = 0; i < m; i++) {
-            int j;
-            for (j = 0; j < n; j++) {
-                flattenedTemperature[i * n + j] = temperature[i][j];
-            }
-        }
-
-        printf("   After flattering\n");
-
-        for (int i = 0; i < m*n; i++) {
-            if (i%n==0) printf("\n");
-            printf("%.2lf ", flattenedTemperature[i]);
-        }
-
-        
-
-   } else {
+        MPI_Bcast(flattenedTemperature, m*n, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
         for (int i = 0; i < m; i++) {
             for (int j = 0; j < n; j++) {
-                flattenedTemperature[i * n + j] = temperature[i][j];
+                temperature[i][j] = flattenedTemperature[i * n + j];
             }
         }
-        MPI_Send(flattenedTemperature, m*n, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
-        MPI_Send(&diff, 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+
+        diff = compute_temp_one_step(temperature, m, n, R, ProcRank, ProcNum);
+
+        MPI_Barrier(MPI_COMM_WORLD);
+
+        if (ProcRank == 0) {
+
+            printf("In cycle: %d\n", iter);
+            iter++;
+
+            max_diff = diff;
+
+            for (int i = 1; i < ProcNum; i++) {
+
+                MPI_Recv(flattenedTemperature, m*n, MPI_DOUBLE, i, 0, MPI_COMM_WORLD, &Status);
+                MPI_Recv(&diff, 1, MPI_DOUBLE, i, 0, MPI_COMM_WORLD, &Status);
+            
+                if (diff > max_diff) max_diff = diff;
+
+                for (int j = 0; j < m; j++) {
+                    for (int k = left(m, n, i, ProcNum); k <= right(m, n, i, ProcNum); k++) {
+                        temperature[j][k] = flattenedTemperature[j * n + k];
+                    }
+                }
+
+            }
+
+            for (int i = 0; i < m; i++) {
+                int j;
+                for (j = 0; j < n; j++) {
+                    flattenedTemperature[i * n + j] = temperature[i][j];
+                }
+            }
+
+            for (int i = 0; i < m*n; i++) {
+                if (i%n==0) printf("\n");
+                printf("%-5.2lf ", flattenedTemperature[i]);
+            }
+
+        } else {
+
+            for (int i = 0; i < m; i++) {
+                for (int j = 0; j < n; j++) {
+                    flattenedTemperature[i * n + j] = temperature[i][j];
+                }
+            }
+
+            MPI_Send(flattenedTemperature, m*n, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+            MPI_Send(&diff, 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+        }
+
+        MPI_Barrier(MPI_COMM_WORLD);
+
+        MPI_Bcast(&max_diff, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
     }
 
-    MPI_Barrier(MPI_COMM_WORLD);
-
-    MPI_Bcast(&max_diff, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-
-    if (max_diff > EPSILON) {
-        MPI_Bcast(flattenedTemperature, m * n, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-        goto cycle;
-    }
+    
 
     // if (ProcRank == 0) {
     //     printf("iter: %d\n", iter);
@@ -274,10 +258,6 @@ double compute_temp_one_step(double** temperature, int m, int n, double R, int P
             new_temp[i][j] = temperature[i][j];
         }
     }
-
-    int l = left(m, n, ProcRank, ProcNum);
-    int r = right(m, n, ProcRank, ProcNum);
-    printf("Process %d: left = %d, right = %d\n", ProcRank, l, r);
 
     for (int i = 0; i < m; i++) {
         for (int j = left(m, n, ProcRank, ProcNum); j <= right(m, n, ProcRank, ProcNum); j++) {   
