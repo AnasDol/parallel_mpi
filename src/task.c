@@ -7,12 +7,12 @@
 #define T 100 // постоянная температура в правом верхнем углу
 #define T3 50 // начальная температура внутри области
 
-#define EPSILON 0.001  // Допустимая погрешность
+#define EPSILON 0.01  // Допустимая погрешность
 #define MAX_ITER 1000   // Максимальное количество итераций
 
 #define min(a,b) (((a) < (b)) ? (a) : (b))
 
-void initialize(double** temperature, int m, int n);
+void initialize(double** temperature, int m, int n, double R);
 double get_new_temp(double** temperature, int m, int n, int current_row, int current_col, double R);
 int compute_temperature(double** temperature, int m, int n, double R, FILE* logfile);
 
@@ -58,13 +58,13 @@ int main(int argc, char* argv[]) {
         temperature[i] = (double*)malloc(n * sizeof(double));
     }
 
-    initialize(temperature, m, n);
+    initialize(temperature, m, n, R);
 
     if (m <= 30 && n <= 15) {
         printf("Initial state:\n");
         for (int i = 0; i < m; i++) {
             for (int j = 0; j < n; j++) {
-                printf("%5.3lf ", temperature[i][j]);
+                printf("%7.3lf ", temperature[i][j]);
             }
             printf("\n");
         }
@@ -76,7 +76,7 @@ int main(int argc, char* argv[]) {
 
     double finish = omp_get_wtime();
 
-    printf("Output:\n");
+    printf("\nOutput:\n");
     for (int i = 0; i < n; i++) {
         printf("%.3lf\t", temperature[0][i]);
     }
@@ -104,7 +104,7 @@ int main(int argc, char* argv[]) {
     return 0;
 }
 
-void initialize(double** temperature, int m, int n) {
+void initialize(double** temperature, int m, int n, double R) {
     // Инициализация значений температур в начальный момент времени
     for (int i = 0; i < m; i++) {
         for (int j = 0; j < n; j++) {
@@ -113,7 +113,11 @@ void initialize(double** temperature, int m, int n) {
             } 
             else if (j == 0 || i == m-1) {
                 temperature[i][j] = 0;  // нулевая температура на левой и нижней границах
-            } else {
+            } 
+            else if (pow(i-round((double)(m/2-1)), 2) + pow(j-round((double)(n/2)), 2) <= R*R) {
+                temperature[i][j] = 0;
+            } 
+            else {
                 temperature[i][j] = T3; // начальная температура внутри области
             }
         }
@@ -185,7 +189,7 @@ int compute_temperature(double** temperature, int m, int n, double R, FILE* logf
         }
 
         if (logfile != NULL) {
-            fprintf(logfile, "[%d] ", iter);
+            fprintf(logfile, "[%d, diff = %lf] ", iter, diff);
             for (int i = 0; i < n; i++) {
                 fprintf(logfile, "%.3lf ", temperature[0][i]);
             }
