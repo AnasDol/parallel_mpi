@@ -102,26 +102,18 @@ int main(int argc, char* argv[]) {
     MPI_Barrier(MPI_COMM_WORLD);
     MPI_Bcast(flattenedTemperature, m*n, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
-    for (i = 0; i < m; i++) {
+    double max_diff = 1.0;
+    int iter = 0;
+    double diff;
+
+    cycle: for (i = 0; i < m; i++) {
         int j;
         for (j = 0; j < n; j++) {
             temperature[i][j] = flattenedTemperature[i * n + j];
         }
     }
-
-    // printf("From process %d:\n", ProcRank);
-    // for (int i = 0;i<m;i++) {
-    //     for (int j = 0;j<n;j++) {
-    //         printf("%lf ", temperature[i][j]);
-    //     }
-    //     printf("\n");
-    // }
-
-    double max_diff = 1.0;
-    int iter = 0;
-    double diff;
-
-    cycle: diff = compute_temp_one_step(temperature, m, n, R, ProcRank, ProcNum);
+    
+    diff = compute_temp_one_step(temperature, m, n, R, ProcRank, ProcNum);
 
     printf("From process %d:\ndiff = %lf\n", ProcRank, diff);
     for (int i = 0;i<m;i++) {
@@ -176,11 +168,7 @@ int main(int argc, char* argv[]) {
             printf("%.2lf ", flattenedTemperature[i]);
         }
 
-        // if (max_diff > EPSILON) {
-        //     MPI_Bcast(flattenedTemperature, m * n, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-        //     goto cycle;
-        // }
-
+        
 
    } else {
 
@@ -191,6 +179,15 @@ int main(int argc, char* argv[]) {
         }
         MPI_Send(flattenedTemperature, m*n, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
         MPI_Send(&diff, 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    MPI_Bcast(&max_diff, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+    if (max_diff > EPSILON) {
+        MPI_Bcast(flattenedTemperature, m * n, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        goto cycle;
     }
 
     // if (ProcRank == 0) {
