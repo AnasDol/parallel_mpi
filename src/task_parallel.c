@@ -70,7 +70,7 @@ int main(int argc, char* argv[]) {
     MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&R, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
-    printf("%d: m = %d, n = %d, R = %lf\n", ProcRank, m, n, R);
+    //printf("%d: m = %d, n = %d, R = %lf\n", ProcRank, m, n, R);
 
     double** temperature = (double**)malloc(m * sizeof(double*));
     int i;
@@ -92,6 +92,7 @@ int main(int argc, char* argv[]) {
             }
         }
 
+        printf("Initial state:\n");
         for (i = 0;i<n*m;i++) {
             if (i%n == 0) printf("\n");
             printf("%.2lf ", flattenedTemperature[i]);
@@ -122,7 +123,7 @@ int main(int argc, char* argv[]) {
 
         if (ProcRank == 0) {
 
-            printf("In cycle: %d\n", iter);
+            printf("[%d]:\n", iter);
             iter++;
 
             max_diff = diff;
@@ -219,7 +220,7 @@ double get_new_temp(double** temperature, int rows, int cols, int current_row, i
 
     if (current_col == 0 || current_col == cols-1 || current_row == rows-1) return temperature[current_row][current_col]; // постоянная температура
     
-    // else if (pow(current_row-round((double)(rows/2-1)), 2) + pow(current_col-round((double)(cols/2)), 2) <= R*R) return 0.0;
+    else if (pow(current_row-round((double)(rows/2-1)), 2) + pow(current_col-round((double)(cols/2)), 2) <= R*R) return 0.0;
 
     double newTemp = 0.0;
     int count = 0;
@@ -228,12 +229,10 @@ double get_new_temp(double** temperature, int rows, int cols, int current_row, i
         if (i < 0 || i > rows-1) continue;
         for(int j = current_col-1;j<=current_col+1;j++) {
             if (j < 0 || j > cols-1) continue;
-            // if (pow(i-round((double)(rows/2-1)), 2) + pow(j-round((double)(cols/2)), 2) > R*R) {
-            //     newTemp += temperature[i][j];
-            //     count++;
-            // }
-            newTemp += temperature[i][j];
-            count++;
+            if (pow(i-round((double)(rows/2-1)), 2) + pow(j-round((double)(cols/2)), 2) > R*R) {
+                newTemp += temperature[i][j];
+                count++;
+            }
         }
     }
 
