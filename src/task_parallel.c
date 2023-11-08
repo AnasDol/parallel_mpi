@@ -30,6 +30,8 @@ int main(int argc, char* argv[]) {
     int n, m;
     double R;
 
+    FILE* logfile;
+
     if (ProcRank == 0) {
         if (argc < 2) {
             printf("Enter log filename as command prompt argument\n");
@@ -39,7 +41,7 @@ int main(int argc, char* argv[]) {
         char filename[255];
         strncpy(filename, argv[1], 255);
 
-        FILE* logfile = fopen(filename, "w+");
+        logfile = fopen(filename, "w+");
         if (!logfile) {
             printf("File not found\n");
             return 0;
@@ -73,29 +75,36 @@ int main(int argc, char* argv[]) {
     //printf("%d: m = %d, n = %d, R = %lf\n", ProcRank, m, n, R);
 
     double** temperature = (double**)malloc(m * sizeof(double*));
-    int i;
-    for (i = 0; i < m; i++) {
+    for (int i = 0; i < m; i++) {
         temperature[i] = (double*)malloc(n * sizeof(double));
     }
 
     double* flattenedTemperature = (double*)malloc(n * m * sizeof(double));
 
+    int iter = 0;
+
     if (ProcRank == 0) {
 
         initialize(temperature, m, n);
 
-        int i;
-        for (i = 0; i < m; i++) {
-            int j;
-            for (j = 0; j < n; j++) {
+        for (int i = 0; i < m; i++) {
+            for (int j = 0; j < n; j++) {
                 flattenedTemperature[i * n + j] = temperature[i][j];
             }
         }
 
         printf("Initial state:\n");
-        for (i = 0;i<n*m;i++) {
+        for (int i = 0; i< n * m; i++) {
             if (i%n == 0) printf("\n");
             printf("%.2lf ", flattenedTemperature[i]);
+        }
+
+        if (logfile != NULL) {
+            fprintf(logfile, "[%d] ", iter);
+            for (int i = 0; i < n; i++) {
+                fprintf(logfile, "%.2lf ", temperature[0][i]);
+            }
+            fprintf(logfile, "\n");
         }
         
     }
@@ -104,7 +113,6 @@ int main(int argc, char* argv[]) {
     MPI_Bcast(flattenedTemperature, m*n, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
     double max_diff = 1.0;
-    int iter = 0;
     double diff;
 
     while (max_diff > EPSILON) {
@@ -123,7 +131,7 @@ int main(int argc, char* argv[]) {
 
         if (ProcRank == 0) {
 
-            printf("[%d]:\n", iter);
+            printf("\n\n[%d]:\n", iter);
             iter++;
 
             max_diff = diff;
@@ -141,6 +149,14 @@ int main(int argc, char* argv[]) {
                     }
                 }
 
+            }
+
+            if (logfile != NULL) {
+                fprintf(logfile, "[%d] ", iter);
+                for (int i = 0; i < n; i++) {
+                    fprintf(logfile, "%.2lf ", temperature[0][i]);
+                }
+                fprintf(logfile, "\n");
             }
 
             for (int i = 0; i < m; i++) {
@@ -171,23 +187,9 @@ int main(int argc, char* argv[]) {
 
         MPI_Bcast(&max_diff, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
-    }
-
+    }    
     
-
-    // if (ProcRank == 0) {
-    //     printf("iter: %d\n", iter);
-    //     for (i = 0; i < m; i++) {
-    //         int j;
-    //         for (j = 0; j < n ;j++) {
-    //             printf("%.2lf ", temperature[i][j]);
-    //         }
-    //         printf("\n");
-    //     }
-    // }
-    
-    
-    for (i = 0;i<m;i++) {
+    for (int i = 0;i<m;i++) {
         free(temperature[i]);
     }
     free(temperature);
