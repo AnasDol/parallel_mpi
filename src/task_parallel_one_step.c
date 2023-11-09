@@ -154,6 +154,11 @@ int main(int argc, char* argv[]) {
                 fprintf(logfile, "\n");
             }
 
+            finish = MPI_Wtime();
+            printf("Time: %lf\n", finish - start);
+            return 0;
+            
+
             // Вывод верхней границы
             // for (int i = 0; i < m; i++) {
             //     printf("%-5.3lf ", flattenedTemperature[i]);
@@ -173,11 +178,9 @@ int main(int argc, char* argv[]) {
 
     if (ProcRank == 0) {
         finish = MPI_Wtime();
-        if (n < 30) {
-            printf("\nOutput:\n");
-            for (int i = 0; i < n; i++) {
-                printf("%.3lf\t", temperature[i]);
-            }
+        printf("\nOutput:\n");
+        for (int i = 0; i < n; i++) {
+            printf("%.3lf\t", temperature[i]);
         }
         printf("\nIntermediate results is saved in the log file.\n");
         printf("Time: %lf\n", finish - start);
